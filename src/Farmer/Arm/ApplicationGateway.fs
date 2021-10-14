@@ -77,7 +77,7 @@ type ApplicationGateway =
           {|  /// Name of the listener
               Name : ResourceName
               FrontendIpConfiguration : ResourceName
-              BackendAddressPool : ResourceName
+              BackendAddressPool : ResourceName option
               CustomErrorConfigurations:  
                 {| CustomErrorPageUrl: string
                    StatusCode: HttpStatusCode |} list
@@ -86,8 +86,8 @@ type ApplicationGateway =
               RequireServerNameIndication : bool
               HostNames : string list
               Protocol : Protocol
-              SslCertificate : ResourceName
-              SslProfile : ResourceName
+              SslCertificate : ResourceName option
+              SslProfile : ResourceName option
           |} list
       Probes :
           {|  /// Name of the probe
@@ -309,8 +309,8 @@ type ApplicationGateway =
                                   hostName = listener.HostNames
                                   protocol = listener.Protocol.ArmValue
                                   requireServerNameIndication = listener.RequireServerNameIndication
-                                  sslCertificate = listener.SslCertificate |> ApplicationGatewaySslCertificates.resourceId |> ResourceId.asId
-                                  sslProfile = listener.SslProfile |> ApplicationGatewaySslProfiles.resourceId |> ResourceId.asId
+                                  sslCertificate = listener.SslCertificate |> Option.map (fun sslCert -> ApplicationGatewaySslCertificates.resourceId sslCert |> ResourceId.asId)
+                                  sslProfile = listener.SslProfile |> Option.map (fun sslProfile -> ApplicationGatewaySslProfiles.resourceId sslProfile |> ResourceId.asId)
                                 |}
                           |}
                         )

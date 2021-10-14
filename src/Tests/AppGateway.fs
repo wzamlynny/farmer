@@ -81,6 +81,28 @@ let tests = testList "Application Gateway Tests" [
                         ]
                     }
                 ]
+                add_http_listeners [
+                    httpListener {
+                        name "my-http-listener"
+                        frontend_ip_config "my-ip-config"
+                        add_custom_error_config [
+                            customErrorConfig {
+                                page_url "test.com"
+                                status_code HttpStatusCode.HttpStatus403
+                            }
+                        ]
+                        link_to_firewall_policy "my-firewall-policy"
+                        frontend_port "port_80"
+                        req_server_name_indication true
+                        add_host_names [ 
+                            "my-host-name"
+                        ]
+                        protocol Protocol.Https
+                        ssl_cert "my-cert"
+                        ssl_profile "my-ssl-profile"
+                    }
+                ]
+                
             }
         ()
         // let resource =

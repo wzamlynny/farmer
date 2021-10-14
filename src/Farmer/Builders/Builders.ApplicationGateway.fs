@@ -3,6 +3,7 @@ module Farmer.Builders.ApplicationGateway
 
 open System
 open Farmer
+open Farmer.Arm.AzureFirewall
 open Farmer.Arm.Network
 open Farmer.PublicIpAddress
 open Farmer.Arm.ApplicationGateway
@@ -307,6 +308,119 @@ type BackendHttpSettingsBuilder () =
     
 let backendHttpSettings = BackendHttpSettingsBuilder()
 
+type HttpListenerCustomErrorConfig =
+    {
+        CustomErrorPageUrl: string
+        StatusCode: HttpStatusCode 
+    }
+    static member BuildResource customError =
+        {|
+            CustomErrorPageUrl = customError.CustomErrorPageUrl
+            StatusCode = customError.StatusCode
+        |}
+
+type HttpListenerCustomErrorBuilder () = 
+    member _.Yield _ =
+        {
+            CustomErrorPageUrl = ""
+            StatusCode = HttpStatusCode.HttpStatus502
+        }
+    [<CustomOperation "page_url">]
+    member _.PageUrl (state:HttpListenerCustomErrorConfig, url) = 
+        { state with CustomErrorPageUrl = url }
+    [<CustomOperation "status_code">]
+    member _.StatusCode (state:HttpListenerCustomErrorConfig, code) = 
+        { state with StatusCode = code }
+
+let customErrorConfig = HttpListenerCustomErrorBuilder()
+
+type HttpListenerConfig =
+    {
+        Name: ResourceName
+        FrontendIpConfiguration: ResourceName
+        BackendAddressPool: ResourceName option
+        CustomErrorConfigurations: HttpListenerCustomErrorConfig list
+        FirewallPolicy : LinkedResource option
+        FrontendPort : ResourceName
+        RequireServerNameIndication : bool
+        HostNames : string list
+        Protocol : Protocol
+        SslCertificate : ResourceName option
+        SslProfile : ResourceName option
+    }
+    static member BuildResource httpListener = 
+        {|
+            Name = httpListener.Name
+            FrontendIpConfiguration = httpListener.FrontendIpConfiguration
+            BackendAddressPool = httpListener.BackendAddressPool
+            CustomErrorConfigurations = httpListener.CustomErrorConfigurations 
+            |> List.map (fun conf -> 
+                {|
+                    CustomErrorPageUrl = conf.CustomErrorPageUrl
+                    StatusCode = conf.StatusCode
+                |}
+            )
+            FirewallPolicy = httpListener.FirewallPolicy
+            |> Option.map (function | Managed resId -> resId | Unmanaged resId -> resId)
+            FrontendPort = httpListener.FrontendPort
+            RequireServerNameIndication = httpListener.RequireServerNameIndication
+            HostNames = httpListener.HostNames
+            Protocol = httpListener.Protocol
+            SslCertificate = httpListener.SslCertificate
+            SslProfile = httpListener.SslProfile
+        |}
+
+type HttpListenerBuilder () =
+    member _.Yield _ =
+        {
+            Name = ResourceName.Empty
+            FrontendIpConfiguration = ResourceName.Empty
+            BackendAddressPool = None
+            CustomErrorConfigurations = []
+            FirewallPolicy = None
+            FrontendPort = ResourceName.Empty
+            RequireServerNameIndication = false
+            HostNames = []
+            Protocol = Protocol.Http
+            SslCertificate = None
+            SslProfile = None
+        }
+    [<CustomOperation "name">]
+    member _.Name (state:HttpListenerConfig, name) = 
+        { state with Name = ResourceName name }
+    [<CustomOperation "frontend_ip_config">]
+    member _.FrontendIpConfiguration (state:HttpListenerConfig, ipConfig) = 
+        { state with FrontendIpConfiguration = ResourceName ipConfig }
+    [<CustomOperation "backened_address_pool">]
+    member _.BackendAddressPool (state:HttpListenerConfig, addressPool) = 
+        { state with BackendAddressPool = Some (ResourceName addressPool) }
+    [<CustomOperation "add_custom_error_config">]
+    member _.CustomErrorConfigurations (state:HttpListenerConfig, customErrorConfig) = 
+        { state with CustomErrorConfigurations = state.CustomErrorConfigurations @ customErrorConfig }
+    [<CustomOperation "link_to_firewall_policy">]
+    member _.FirewallPolicy (state:HttpListenerConfig, firewallPolicy) = 
+        { state with FirewallPolicy = Some (Unmanaged (azureFirewallPolicies.resourceId (ResourceName firewallPolicy))) }
+    [<CustomOperation "frontend_port">]
+    member _.FrontendPort (state:HttpListenerConfig, port) = 
+        { state with FrontendPort = ResourceName port }
+    [<CustomOperation "req_server_name_indication">]
+    member _.RequireServerNameIndication (state:HttpListenerConfig, indication) = 
+        { state with RequireServerNameIndication = indication }
+    [<CustomOperation "add_host_names">]
+    member _.HostNames (state:HttpListenerConfig, hostNames) = 
+        { state with HostNames = state.HostNames @ hostNames }
+    [<CustomOperation "protocol">]
+    member _.Protocol (state:HttpListenerConfig, protocol) = 
+        { state with Protocol = protocol }
+    [<CustomOperation "ssl_cert">]
+    member _.SslCertificate (state:HttpListenerConfig, cert) = 
+        { state with SslCertificate = Some (ResourceName cert) }
+    [<CustomOperation "ssl_profile">]
+    member _.SslProfile (state:HttpListenerConfig, sslProfile) = 
+        { state with SslProfile = Some (ResourceName sslProfile) }
+    
+let httpListener = HttpListenerBuilder()
+
 type AppGatewayConfig =
     { Name : ResourceName
       Sku: ApplicationGatewaySku
@@ -315,6 +429,7 @@ type AppGatewayConfig =
       FrontendPorts: FrontendPortConfig list
       BackendAddressPools: BackendAddressPoolConfig list
       BackendHttpSettingsCollection: BackendHttpSettingsConfig list
+      HttpListeners: HttpListenerConfig list
       Dependencies: Set<ResourceId>
       Tags: Map<string,string>
      }
@@ -339,6 +454,8 @@ type AppGatewayConfig =
                 FrontendPorts = this.FrontendPorts |> List.map FrontendPortConfig.BuildResource
                 BackendAddressPools = this.BackendAddressPools |> List.map (fun p -> p.Name)
                 BackendHttpSettingsCollection = this.BackendHttpSettingsCollection |> List.map BackendHttpSettingsConfig.BuildResource
+                HttpListeners = this.HttpListeners |> List.map HttpListenerConfig.BuildResource
+
 
                 Dependencies =
                     frontendPublicIps
@@ -356,7 +473,7 @@ type AppGatewayConfig =
                 EnableHttp2 = Unchecked.defaultof<_>
                 FirewallPolicy = Unchecked.defaultof<_>
                 ForceFirewallPolicyAssociation = Unchecked.defaultof<_>
-                HttpListeners = Unchecked.defaultof<_>
+                // HttpListeners = Unchecked.defaultof<_>
                 Probes = Unchecked.defaultof<_>
                 RedirectConfigurations = Unchecked.defaultof<_>
                 RequestRoutingRules = Unchecked.defaultof<_>
@@ -388,6 +505,7 @@ type AppGatewayBuilder() =
         FrontendPorts = []
         BackendAddressPools = []
         BackendHttpSettingsCollection = []
+        HttpListeners = []
         Dependencies = Set.empty
         Tags = Map.empty
     }
@@ -418,5 +536,8 @@ type AppGatewayBuilder() =
     [<CustomOperation "add_backend_https_settings_collection">]
     member _.AddBackendHttpSettingsCollection (state:AppGatewayConfig, backendHttpSettings) = 
         { state with BackendHttpSettingsCollection = state.BackendHttpSettingsCollection @ backendHttpSettings }
+    [<CustomOperation "add_http_listeners">]
+    member _.AddHttpListeners (state:AppGatewayConfig, httpListeners) =
+        { state with HttpListeners = state.HttpListeners @ httpListeners}
 
 let appGateway = AppGatewayBuilder()
